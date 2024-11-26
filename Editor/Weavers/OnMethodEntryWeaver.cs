@@ -2,6 +2,8 @@ using Mono.Cecil;
 using UnityEngine;
 using System.Linq;
 using System;
+using Unity.VisualScripting;
+using Mono.Cecil.Cil;
 
 namespace DominoGames.TweakIL{
 
@@ -54,7 +56,7 @@ namespace DominoGames.TweakIL{
 
             // System.Reflection.MethodInfo
             var getMethod = module.ImportReference(
-                typeof(System.Type).GetMethod("GetMethod", new[] { typeof(string) })
+                typeof(System.Type).GetMethod("GetMethod", new[] { typeof(string), typeof(Type[]) })
             );
 
             // first instruction to inject
@@ -74,9 +76,28 @@ namespace DominoGames.TweakIL{
             // Type.GetType("Type name") -> GetMethod("Method Name")
             ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Ldstr, targetMethod.DeclaringType.FullName)); // Type name
             ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Call, getTypeMethod)); // Type.GetType()
-            ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Ldstr, targetMethod.Name)); // Method name
-            ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Callvirt, getMethod)); // Type.GetMethod()
 
+
+            // 매개변수 타입 배열
+            var parameterTypes = targetMethod.Parameters.Select(p => module.ImportReference(p.ParameterType)).ToArray();
+
+            // GetMethod("Method Name", parameterTypes)
+            ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Ldstr, targetMethod.Name)); // Method name
+
+            // 매개변수 타입 배열 생성
+            ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Ldc_I4, parameterTypes.Length)); // 배열 크기
+            ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Newarr, module.ImportReference(typeof(Type))));
+            for (int i = 0; i < parameterTypes.Length; i++)
+            {
+                ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Dup)); // 배열 복사
+                ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Ldc_I4, i)); // 배열 인덱스
+                ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Ldtoken, parameterTypes[i])); // 매개변수 타입 로드
+                ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Call, module.ImportReference(typeof(Type).GetMethod("GetTypeFromHandle")))); // Type.GetTypeFromHandle
+                ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Stelem_Ref)); // 배열에 저장
+            }
+            ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Callvirt, getMethod)); // GetMethod 호출
+
+            bool isMethodStatic = targetMethod.IsStatic;
 
             // parameters
             var parameters = targetMethod.Parameters;
@@ -92,7 +113,16 @@ namespace DominoGames.TweakIL{
                 ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Ldc_I4, i)); // 배열 인덱스
 
                 // 파라미터 값 로드
-                ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Ldarg, i + 1)); // Ldarg_1, Ldarg_2, ...
+                if (isMethodStatic)
+                {
+                    // static 함수라면 0번 매개변수부터 함수 매개변수임
+                    ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Ldarg, i));
+                }
+                else
+                {
+                    // instance method라면 0번 매개변수는 this이므로 제외하고 1번부터
+                    ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Ldarg, i + 1));
+                }
 
                 // 값 타입은 박싱
                 if (parameters[i].ParameterType.IsValueType)
@@ -105,9 +135,8 @@ namespace DominoGames.TweakIL{
             }
 
 
-
             // MethodOnEntry.OnEntry(GameObject)
-            ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Callvirt, onEntryMethod)); // Call static OnEntry
+            ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Call, onEntryMethod)); // Call static OnEntry
         }
 
 
@@ -133,7 +162,7 @@ namespace DominoGames.TweakIL{
 
                 return false;
             }
-            catch(Exception e)
+            catch(Exception)
             {
                 // do nothing just skipping
                 return false;

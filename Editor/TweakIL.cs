@@ -8,7 +8,6 @@ using System.Linq;
 using System.Threading;
 using UnityEditor.Compilation;
 using System;
-using System.Configuration.Assemblies;
 
 namespace DominoGames.TweakIL
 {
