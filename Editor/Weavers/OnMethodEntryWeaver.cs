@@ -1,4 +1,3 @@
-using DominoGames.DominoEngine.Attribute;
 using Mono.Cecil;
 using UnityEngine;
 using System.Linq;
@@ -77,6 +76,35 @@ namespace DominoGames.TweakIL{
             ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Call, getTypeMethod)); // Type.GetType()
             ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Ldstr, targetMethod.Name)); // Method name
             ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Callvirt, getMethod)); // Type.GetMethod()
+
+
+            // parameters
+            var parameters = targetMethod.Parameters;
+
+            // 배열 크기 설정
+            ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Ldc_I4, parameters.Count));
+            ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Newarr, module.ImportReference(typeof(object))));
+
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                // 배열 복사
+                ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Dup));
+                ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Ldc_I4, i)); // 배열 인덱스
+
+                // 파라미터 값 로드
+                ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Ldarg, i + 1)); // Ldarg_1, Ldarg_2, ...
+
+                // 값 타입은 박싱
+                if (parameters[i].ParameterType.IsValueType)
+                {
+                    ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Box, parameters[i].ParameterType));
+                }
+
+                // 배열에 저장
+                ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Stelem_Ref));
+            }
+
+
 
             // MethodOnEntry.OnEntry(GameObject)
             ilProcessor.InsertBefore(firstInstruction, ilProcessor.Create(Mono.Cecil.Cil.OpCodes.Callvirt, onEntryMethod)); // Call static OnEntry
